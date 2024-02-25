@@ -1,0 +1,95 @@
+from flask import Flask, render_template, request, redirect, url_for, flash
+from flask_sqlalchemy import SQLAlchemy
+from datetime
+
+app = Flask(Cripto)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///events.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = 'secret_key'
+db = SQLAlchemy(app)
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(120), nullable=False)
+
+class Event(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(400), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user = db.relationship('User', backref=db.backref('events', lazy=True))
+    shared_with = db.relationship('User', secondary='shared_events', backref=db.backref('shared_events', lazy='dynamic'))
+
+class SharedEvent(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('event.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+db.create_all()
+
+@app.route('/')
+def home():
+    events = Event.query.all()
+    return render_template('index.html', events=events)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username, password=password).first()
+        if user:
+            flash('Inicio de sesión exitoso', 'success')
+            return redirect(url_for('home'))
+        else:
+            flash('Credenciales incorrectas', 'danger')
+    return render_template('login.html')
+
+@app.route('/create_event', methods=['GET', 'POST'])
+def create_event():
+    if request.method == 'POST':
+        title = request.form['title']
+        description = request.form['description']
+        user_id = 1  # Asignar el ID del usuario actual (en una aplicación real, usar autenticación)
+        new_event = Event(title=title, description=description, user_id=user_id)
+        db.session.add(new_event)
+        db.session.commit()
+        flash('Evento creado correctamente', 'success')
+        return redirect(url_for('home'))
+    return render_template('create_event.html')
+
+@app.route('/edit_event/<int:event_id>', methods=['GET', 'POST'])
+def edit_event(event_id):
+    event = Event.query.get(event_id)
+    if request.method == 'POST':
+        event.title = request.form['title']
+        event.description = request.form['description']
+        db.session.commit()
+        flash('Evento actualizado correctamente', 'success')
+        return redirect(url_for('home'))
+    return render_template('edit_event.html', event=event)
+
+@app.route('/delete_event/<int:event_id>')
+def delete_event(event_id):
+    event = Event.query.get(event_id)
+    db.session.delete(event)
+    db.session.commit()
+    flash('Evento eliminado correctamente', 'success')
+    return redirect(url_for('home'))
+
+@app.route('/share_event/<int:event_id>', methods=['POST'])
+def share_event(event_id):
+    event = Event.query.get(event_id)
+    username = request.form['username']
+    user = User.query.filter_by(username=username).first()
+    if user:
+        event.shared_with.append(user)
+        db.session.commit()
+        flash('Evento compartido correctamente', 'success')
+    else:
+        flash('Usuario no encontrado', 'danger')
+    return redirect(url_for('home'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
